@@ -38,7 +38,7 @@ function errorResult(err: unknown) {
  * table_stats, index_health.
  */
 export function createServer(pool: Pool): McpServer {
-  const server = new McpServer({ name: "pg-lens-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "pg-lens-mcp", version: "0.2.0" });
 
   server.registerTool(
     "list_tables",

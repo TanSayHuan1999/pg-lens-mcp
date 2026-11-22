@@ -1,22 +1,25 @@
 {
-  "name": "pg-lens-mcp",
-  "version": "0.1.0",
+  "name": "@tansayhuan1999/pg-lens-mcp",
+  "version": "0.2.0",
   "description": "Read-only PostgreSQL explainer MCP server",
-  "main": "index.js",
-  "directories": {
-    "test": "test"
-  },
+  "main": "dist/pg-lens.mjs",
   "scripts": {
     "test": "vitest run",
     "build": "tsc -p tsconfig.json",
     "start": "tsx src/index.ts",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --external:pg-native --banner:js=\"import { createRequire } from \"node:module\"; const require = createRequire(import.meta.url);\" --outfile=dist/pg-lens.mjs",
+    "bundle": "node scripts/build-bundle.mjs",
     "eval": "tsx evals/run.ts",
     "eval:protocol": "node evals/protocol-evals.mjs"
   },
-  "keywords": [],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "postgresql",
+    "postgres",
+    "developer-tools"
+  ],
   "author": "",
   "license": "MIT",
   "type": "module",
@@ -32,5 +35,24 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.1.1"
+  },
+  "bin": {
+    "pg-lens-mcp": "dist/pg-lens.mjs"
+  },
+  "files": [
+    "dist/pg-lens.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TanSayHuan1999/pg-lens-mcp.git"
+  },
+  "homepage": "https://github.com/TanSayHuan1999/pg-lens-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/TanSayHuan1999/pg-lens-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -9,7 +9,7 @@ orders table look like?"* — and, from Evening 2, *"why is this query slow?"*
 The server can **never write to the database**. That is a design choice,
 not a missing feature — see *Safety* below.
 
-> All five tools are built and verified end-to-end against a live seeded
+> All six tools are built and verified end-to-end against a live seeded
 > database (below), with unit + integration tests and two layers of evals.
 
 ## Tools
@@ -21,6 +21,22 @@ not a missing feature — see *Safety* below.
 | `explain_query` | EXPLAIN (FORMAT JSON) for a SELECT, summarised: cost, sequential scans, index scans. Planned, never executed |
 | `suggest_indexes` | Reads an explain plan and suggests an index, with reasoning — never applies it |
 | `table_stats` | Table/index sizes, live/dead rows, sequential vs index scan counts |
+| `index_health` | **v0.2:** Global index view across all schemas — flags unused and redundant indexes, with sizes and wasted bytes. Never drops anything |
+
+### What's new in v0.2 — `index_health`
+
+Missing indexes are only half the problem: unused and duplicate indexes tax
+every INSERT/UPDATE and waste storage. `index_health` reads
+`pg_stat_user_indexes` and the `pg_index` catalog and reports every index in
+the database with a verdict:
+
+- `unused` — never scanned (`idx_scan = 0`)
+- `redundant` — its columns are a left-prefix of a wider index on the same table
+- `ok` — otherwise
+
+Primary-key and unique indexes are **never flagged** — they enforce
+integrity even if they are never scanned for lookups. Like `suggest_indexes`,
+it only *suggests* a `DROP INDEX` statement for review; pg-lens never runs one.
 
 ## Verified end-to-end (live, seeded shop DB)
 
@@ -94,23 +110,23 @@ Full walkthrough: [docs/claude-desktop.md](docs/claude-desktop.md).
 
 Two layers, both run against the seeded database:
 
-- **Tool-level evals** — `evals/cases.json` holds 11 fixed cases: a
+- **Tool-level evals** — `evals/cases.json` holds 13 fixed cases: a
   question, the tool that should answer it, and the expected diagnosis
   (e.g. "orders by customer must seq-scan, and the suggestion must be
   `CREATE INDEX idx_orders_customer_id …`"; "a DELETE must be rejected").
 
   ```bash
   DATABASE_URL=postgres://pglens:pglens@localhost:5433/shop npm run eval
-  # 11/11 eval cases passed
+  # 13/13 eval cases passed
   ```
 
 - **Protocol evals** — `evals/protocol-evals.mjs` spawns the server and
-  speaks raw MCP over stdio, exactly as a client does: 12 cases covering
+  speaks raw MCP over stdio, exactly as a client does: 14 cases covering
   every tool plus the safety rejections.
 
   ```bash
   DATABASE_URL=postgres://pglens:pglens@localhost:5433/shop npm run eval:protocol
-  # 12/12 evals passed
+  # 14/14 evals passed
   ```
 
 This is the eval-first check: the tools are scored on known questions
@@ -139,6 +155,7 @@ deliberately.
 - `src/plan.ts` — EXPLAIN plan parser and index-suggestion logic
 - `src/sql-guard.ts` — read-only SQL guard
 - `src/db.ts` — connection pool + read-only transaction wrapper
+- `scripts/build-bundle.mjs` — esbuild JS-API bundle build (no shell quoting)
 - `db/init.sql` — sample shop schema + seed data
 - `test/` — vitest tests
 - `evals/` — fixed eval cases (tool-level + protocol-level)
