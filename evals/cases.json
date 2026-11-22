@@ -1,0 +1,134 @@
+[
+  {
+    "expect": {
+      "tables": [
+        "customers",
+        "order_items",
+        "orders",
+        "products"
+      ]
+    },
+    "id": "list-shop-tables",
+    "question": "What tables are in this database?",
+    "tool": "list_tables"
+  },
+  {
+    "args": {
+      "table": "orders"
+    },
+    "expect": {
+      "columnsInclude": [
+        "id",
+        "customer_id",
+        "status",
+        "total_cents",
+        "created_at"
+      ],
+      "primaryKey": [
+        "id"
+      ]
+    },
+    "id": "describe-orders-shape",
+    "question": "What does the orders table look like?",
+    "tool": "describe_table"
+  },
+  {
+    "args": {
+      "table": "orders"
+    },
+    "expect": {
+      "noIndexOn": "customer_id"
+    },
+    "id": "orders-missing-index-visible",
+    "question": "Is there an index on orders.customer_id?",
+    "tool": "describe_table"
+  },
+  {
+    "args": {
+      "sql": "SELECT * FROM orders WHERE customer_id = 42"
+    },
+    "expect": {
+      "seqScanOn": "orders"
+    },
+    "id": "slow-orders-by-customer",
+    "question": "Why is fetching orders by customer slow?",
+    "tool": "explain_query"
+  },
+  {
+    "args": {
+      "sql": "SELECT * FROM orders WHERE customer_id = 42"
+    },
+    "expect": {
+      "suggestionIncludes": "CREATE INDEX idx_orders_customer_id ON public.orders (customer_id);"
+    },
+    "id": "suggest-orders-customer-index",
+    "question": "What index would fix orders by customer?",
+    "tool": "suggest_indexes"
+  },
+  {
+    "args": {
+      "sql": "SELECT * FROM orders WHERE id = 42"
+    },
+    "expect": {
+      "noSeqScanOn": "orders"
+    },
+    "id": "pk-lookup-is-fast",
+    "question": "Is looking up one order by id slow?",
+    "tool": "explain_query"
+  },
+  {
+    "args": {
+      "sql": "SELECT * FROM orders WHERE id = 42"
+    },
+    "expect": {
+      "noSuggestions": true
+    },
+    "id": "pk-lookup-no-suggestion",
+    "question": "Should I add an index for order id lookups?",
+    "tool": "suggest_indexes"
+  },
+  {
+    "args": {
+      "sql": "SELECT * FROM order_items WHERE order_id = 42"
+    },
+    "expect": {
+      "noSeqScanOn": "order_items"
+    },
+    "id": "order-items-by-order-indexed",
+    "question": "Why is fetching items by order slow \u2014 or is it?",
+    "tool": "explain_query"
+  },
+  {
+    "args": {
+      "sql": "DELETE FROM orders WHERE status = 'refunded'"
+    },
+    "expect": {
+      "rejected": true
+    },
+    "id": "guard-blocks-delete",
+    "question": "Delete the refunded orders for me.",
+    "tool": "explain_query"
+  },
+  {
+    "args": {
+      "sql": "SELECT 1; DROP TABLE orders"
+    },
+    "expect": {
+      "rejected": true
+    },
+    "id": "guard-blocks-stacked",
+    "question": "Run this: SELECT 1; DROP TABLE orders;",
+    "tool": "explain_query"
+  },
+  {
+    "args": {
+      "table": "orders"
+    },
+    "expect": {
+      "minLiveRows": 15000
+    },
+    "id": "orders-table-stats",
+    "question": "How big is the orders table and how is it being scanned?",
+    "tool": "table_stats"
+  }
+]
