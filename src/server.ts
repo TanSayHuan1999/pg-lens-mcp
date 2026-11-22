@@ -2,7 +2,13 @@ import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import type { Pool } from "pg";
 import { withReadOnly } from "./db.js";
-import { describeTable, listTables } from "./tools.js";
+import {
+  describeTable,
+  explainQuery,
+  listTables,
+  suggestIndexes,
+  tableStats,
+} from "./tools.js";
 
 function textResult(value: unknown) {
   return {
@@ -27,8 +33,8 @@ function errorResult(err: unknown) {
 
 /**
  * Build the pg-lens MCP server around a connection pool.
- * Evening 1 tools: list_tables, describe_table.
- * Evening 2 will add: explain_query, suggest_indexes, table_stats.
+ * Tools: list_tables, describe_table, explain_query, suggest_indexes,
+ * table_stats.
  */
 export function createServer(pool: Pool): McpServer {
   const server = new McpServer({ name: "pg-lens-mcp", version: "0.1.0" });
@@ -76,6 +82,71 @@ export function createServer(pool: Pool): McpServer {
           describeTable(db, table, schema ?? "public"),
         );
         return textResult(description);
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "explain_query",
+    {
+      title: "Explain query",
+      description:
+        "Run EXPLAIN (FORMAT JSON) for a SELECT query and return a plain summary: total cost, node types, sequential scans, and index scans. The query is planned, never executed, and writes are rejected.",
+      inputSchema: z.object({
+        query: z
+          .string()
+          .describe("The SELECT query to explain, e.g. \"SELECT * FROM orders WHERE customer_id = 1\"."),
+      }),
+    },
+    async ({ query }) => {
+      try {
+        const result = await withReadOnly(pool, (db) => explainQuery(db, query));
+        return textResult(result);
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "suggest_indexes",
+    {
+      title: "Suggest indexes",
+      description:
+        "Analyse a SELECT query's plan and suggest indexes for sequential scans, with reasoning and the CREATE INDEX statement. Suggestions only — this tool never creates an index.",
+      inputSchema: z.object({
+        query: z.string().describe("The SELECT query to analyse."),
+      }),
+    },
+    async ({ query }) => {
+      try {
+        const result = await withReadOnly(pool, (db) => suggestIndexes(db, query));
+        return textResult(result);
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "table_stats",
+    {
+      title: "Table stats",
+      description:
+        "Statistics for one table: live/dead rows, sequential vs index scan counts, and table/index sizes.",
+      inputSchema: z.object({
+        table: z.string().describe("Table name, e.g. \"orders\"."),
+        schema: z.string().optional().describe("Schema name. Defaults to \"public\"."),
+      }),
+    },
+    async ({ table, schema }) => {
+      try {
+        const result = await withReadOnly(pool, (db) =>
+          tableStats(db, table, schema ?? "public"),
+        );
+        return textResult(result);
       } catch (err) {
         return errorResult(err);
       }

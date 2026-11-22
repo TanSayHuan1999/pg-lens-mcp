@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pglens
+          POSTGRES_PASSWORD: pglens
+          POSTGRES_DB: shop
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pglens -d shop"
+          --health-interval 2s --health-timeout 2s --health-retries 10
+    env:
+      DATABASE_URL: postgres://pglens:pglens@localhost:5432/shop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Seed the sample database
+        run: psql "$DATABASE_URL" -f db/init.sql
+      - run: npm test

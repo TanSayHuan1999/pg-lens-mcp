@@ -9,9 +9,9 @@ orders table look like?"* — and, from Evening 2, *"why is this query slow?"*
 The server can **never write to the database**. That is a design choice,
 not a missing feature — see *Safety* below.
 
-> Status: Evening 1 of 3 — `list_tables` and `describe_table` are built and
-> tested. `explain_query`, `suggest_indexes`, and `table_stats` come next,
-> then evals and a recorded demo.
+> Status: Evening 2 of 3 — all five tools are built and tested, including a
+> live end-to-end run (below). Evening 3 adds evals, a recorded demo, CI
+> verification on GitHub, and publishing.
 
 ## Tools
 
@@ -19,9 +19,19 @@ not a missing feature — see *Safety* below.
 | --- | --- |
 | `list_tables` | Tables in the database (system schemas excluded), with approximate row counts |
 | `describe_table` | Columns and types, primary key, and existing indexes for one table |
-| `explain_query` | *(Evening 2)* EXPLAIN (FORMAT JSON) for a SELECT, run read-only |
-| `suggest_indexes` | *(Evening 2)* Reads an explain plan and suggests an index, with reasoning — never applies it |
-| `table_stats` | *(Evening 2)* Table/index sizes and scan counts |
+| `explain_query` | EXPLAIN (FORMAT JSON) for a SELECT, summarised: cost, sequential scans, index scans. Planned, never executed |
+| `suggest_indexes` | Reads an explain plan and suggests an index, with reasoning — never applies it |
+| `table_stats` | Table/index sizes, live/dead rows, sequential vs index scan counts |
+
+## Verified end-to-end (live, seeded shop DB)
+
+Query: `SELECT * FROM orders WHERE customer_id = 42` (20,000 orders)
+
+- **Before:** plan cost **417**, sequential scan on `orders`
+- `suggest_indexes` → `CREATE INDEX idx_orders_customer_id ON public.orders (customer_id);`
+- **After** a human applies that index (the tool never does): cost
+  **157.46**, sequential scan gone, Bitmap Index Scan on the new index,
+  and `suggest_indexes` now reports nothing to suggest
 
 ## Safety — defence in depth
 
@@ -66,8 +76,12 @@ Claude Desktop.)
 ## Development
 
 ```bash
-npm test        # vitest — SQL guard + tool logic (no database needed)
+npm test        # vitest — SQL guard, plan parser, tool logic (no database needed)
 npm run typecheck
+DATABASE_URL=postgres://pglens:pglens@localhost:5433/shop npm test
+                # also runs the integration tests against a real seeded
+                # Postgres (docker compose up -d first); CI does the same
+                # with a Postgres service — see .github/workflows/ci.yml
 ```
 
 Built on the official MCP TypeScript SDK **v2**
