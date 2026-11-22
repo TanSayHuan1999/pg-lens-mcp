@@ -9,9 +9,8 @@ orders table look like?"* — and, from Evening 2, *"why is this query slow?"*
 The server can **never write to the database**. That is a design choice,
 not a missing feature — see *Safety* below.
 
-> Status: Evening 2 of 3 — all five tools are built and tested, including a
-> live end-to-end run (below). Evening 3 adds evals, a recorded demo, CI
-> verification on GitHub, and publishing.
+> All five tools are built and verified end-to-end against a live seeded
+> database (below), with unit + integration tests and two layers of evals.
 
 ## Tools
 
@@ -70,21 +69,49 @@ slow query the demo diagnoses.
 claude mcp add pg-lens --env DATABASE_URL=postgres://pglens:pglens@localhost:5433/shop -- npx tsx src/index.ts
 ```
 
-(Or add the same command/env to your client's MCP config for Cursor /
-Claude Desktop.)
+### Use it from Claude Desktop (free plan works)
+
+Build the single-file bundle once (`npm run bundle`), then add to
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "pg-lens": {
+      "command": "node",
+      "args": ["/path/to/pg-lens-mcp/dist/pg-lens.mjs"],
+      "env": {
+        "DATABASE_URL": "postgres://pglens:pglens@localhost:5433/shop"
+      }
+    }
+  }
+}
+```
+
+Full walkthrough: [docs/claude-desktop.md](docs/claude-desktop.md).
 
 ## Evals
 
-`evals/cases.json` holds 11 fixed cases — a seeded schema, a question, the
-tool that should answer it, and the expected diagnosis (e.g. "orders by
-customer must seq-scan, and the suggestion must be exactly
-`CREATE INDEX idx_orders_customer_id …`"; "a DELETE must be rejected").
-Run them against the seeded database:
+Two layers, both run against the seeded database:
 
-```bash
-DATABASE_URL=postgres://pglens:pglens@localhost:5432/shop npm run evals
-# 11/11 eval cases passed
-```
+- **Tool-level evals** — `evals/cases.json` holds 11 fixed cases: a
+  question, the tool that should answer it, and the expected diagnosis
+  (e.g. "orders by customer must seq-scan, and the suggestion must be
+  `CREATE INDEX idx_orders_customer_id …`"; "a DELETE must be rejected").
+
+  ```bash
+  DATABASE_URL=postgres://pglens:pglens@localhost:5433/shop npm run eval
+  # 11/11 eval cases passed
+  ```
+
+- **Protocol evals** — `evals/protocol-evals.mjs` spawns the server and
+  speaks raw MCP over stdio, exactly as a client does: 12 cases covering
+  every tool plus the safety rejections.
+
+  ```bash
+  DATABASE_URL=postgres://pglens:pglens@localhost:5433/shop npm run eval:protocol
+  # 12/12 evals passed
+  ```
 
 This is the eval-first check: the tools are scored on known questions
 instead of only looking right in a demo.
@@ -101,15 +128,18 @@ DATABASE_URL=postgres://pglens:pglens@localhost:5433/shop npm test
 ```
 
 Built on the official MCP TypeScript SDK **v2**
-(`@modelcontextprotocol/server`, protocol revision 2026-07-28). Most
-tutorials online still use the v1 package (`@modelcontextprotocol/sdk`);
-this project starts on v2 deliberately.
+(`@modelcontextprotocol/server` 2.4.0). Most tutorials online still use
+the v1 package (`@modelcontextprotocol/sdk`); this project starts on v2
+deliberately.
 
 ## Layout
 
 - `src/server.ts` — MCP server and tool registration
 - `src/tools.ts` — tool logic (unit-testable without a database)
+- `src/plan.ts` — EXPLAIN plan parser and index-suggestion logic
 - `src/sql-guard.ts` — read-only SQL guard
 - `src/db.ts` — connection pool + read-only transaction wrapper
 - `db/init.sql` — sample shop schema + seed data
 - `test/` — vitest tests
+- `evals/` — fixed eval cases (tool-level + protocol-level)
+- `docs/` — client setup walkthroughs

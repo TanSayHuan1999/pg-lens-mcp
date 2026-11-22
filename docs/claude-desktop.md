@@ -26,7 +26,7 @@ and demo recording setup.
          "command": "node",
          "args": ["/Users/sayhuan99/pg-lens-mcp/dist/pg-lens.mjs"],
          "env": {
-           "DATABASE_URL": "postgres://pglens:pglens@localhost:5432/shop"
+           "DATABASE_URL": "postgres://pglens:pglens@localhost:5433/shop"
          }
        }
      }
@@ -48,4 +48,4 @@ and demo recording setup.
 
 - Make sure the demo flaw is intact: no `idx_orders_customer_id` index
   (drop it if a test created one).
-- Re-run `npm run evals` — expect 11/11.
+- Re-run `npm run eval` — expect 11/11.
