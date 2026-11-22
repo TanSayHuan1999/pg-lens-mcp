@@ -1,5 +1,5 @@
 {
-  "name": "@tansayhuan1999/pg-lens-mcp",
+  "name": "@sayhuan99/pg-lens-mcp",
   "version": "0.2.0",
   "description": "Read-only PostgreSQL explainer MCP server",
   "main": "dist/pg-lens.mjs",
