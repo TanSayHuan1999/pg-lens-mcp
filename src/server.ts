@@ -5,6 +5,7 @@ import { withReadOnly } from "./db.js";
 import {
   describeTable,
   explainQuery,
+  indexHealth,
   listTables,
   suggestIndexes,
   tableStats,
@@ -34,7 +35,7 @@ function errorResult(err: unknown) {
 /**
  * Build the pg-lens MCP server around a connection pool.
  * Tools: list_tables, describe_table, explain_query, suggest_indexes,
- * table_stats.
+ * table_stats, index_health.
  */
 export function createServer(pool: Pool): McpServer {
   const server = new McpServer({ name: "pg-lens-mcp", version: "0.1.0" });
@@ -123,6 +124,29 @@ export function createServer(pool: Pool): McpServer {
     async ({ query }) => {
       try {
         const result = await withReadOnly(pool, (db) => suggestIndexes(db, query));
+        return textResult(result);
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "index_health",
+    {
+      title: "Index health",
+      description:
+        "Report the health of every index in user schemas: indexes never scanned (excluding primary-key and unique indexes, which enforce integrity) and indexes made redundant by a wider composite index on the same table, with sizes and wasted bytes. Suggestions only — this tool never drops an index.",
+      inputSchema: z.object({
+        schema: z
+          .string()
+          .optional()
+          .describe("Only check indexes in this schema, e.g. \"public\". Defaults to all user schemas."),
+      }),
+    },
+    async ({ schema }) => {
+      try {
+        const result = await withReadOnly(pool, (db) => indexHealth(db, schema));
         return textResult(result);
       } catch (err) {
         return errorResult(err);

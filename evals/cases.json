@@ -130,5 +130,32 @@
     "id": "orders-table-stats",
     "question": "How big is the orders table and how is it being scanned?",
     "tool": "table_stats"
+  },
+  {
+    "expect": {
+      "minTotalIndexes": 6,
+      "notFlagged": [
+        "orders_pkey",
+        "customers_pkey",
+        "customers_email_key",
+        "products_pkey",
+        "products_sku_key"
+      ]
+    },
+    "id": "index-health-protects-integrity-indexes",
+    "question": "Are any indexes wasted — and are the primary-key / unique indexes safe from being flagged?",
+    "tool": "index_health"
+  },
+  {
+    "args": {
+      "schema": "public"
+    },
+    "expect": {
+      "allSchema": "public",
+      "minTotalIndexes": 6
+    },
+    "id": "index-health-schema-filter",
+    "question": "Check index health in the public schema only.",
+    "tool": "index_health"
   }
 ]

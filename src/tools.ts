@@ -205,6 +205,251 @@ export async function suggestIndexes(db: Db, rawSql: string): Promise<SuggestRes
   };
 }
 
+// ---------------------------------------------------------------------------
+// v0.2 tool — index_health
+// ---------------------------------------------------------------------------
+
+/** Minimal index shape the redundant-detection helper reasons about. */
+export interface IndexForRedundancy {
+  schema: string;
+  table: string;
+  index: string;
+  columns: string[];
+  isPrimary: boolean;
+  isUnique: boolean;
+}
+
+/** True when `shorter` is a left-prefix of `longer` (strictly shorter). */
+export function isLeftPrefix(shorter: string[], longer: string[]): boolean {
+  if (shorter.length === 0 || shorter.length >= longer.length) return false;
+  return shorter.every((col, i) => longer[i] === col);
+}
+
+function sameColumns(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((col, i) => b[i] === col);
+}
+
+/**
+ * Find indexes made redundant by another index on the same table.
+ *
+ * Pure function — no database access — so it can be unit-tested directly.
+ *
+ * Rules:
+ * - Primary-key and unique indexes are never flagged: they enforce
+ *   integrity even when another index covers their columns.
+ * - An index is redundant when another index on the same table covers
+ *   its columns as a left-prefix, e.g. (customer_id) is covered by
+ *   (customer_id, status).
+ * - Exact duplicates: when two indexes have identical columns, the
+ *   later one in the list is flagged (the first is kept). If the
+ *   duplicate is a PK/unique index, the plain index is flagged instead
+ *   and the PK/unique index is never flagged.
+ *
+ * Returns a map from redundant index name to the covering index name.
+ */
+export function findRedundantIndexes(
+  indexes: IndexForRedundancy[],
+): Map<string, string> {
+  const redundant = new Map<string, string>();
+  for (const candidate of indexes) {
+    if (candidate.isPrimary || candidate.isUnique) continue;
+    if (candidate.columns.length === 0) continue;
+    for (const other of indexes) {
+      if (other.index === candidate.index) continue;
+      if (other.schema !== candidate.schema || other.table !== candidate.table) {
+        continue;
+      }
+      if (other.columns.length === 0) continue;
+
+      // Wider index covering this one as a left-prefix.
+      if (isLeftPrefix(candidate.columns, other.columns)) {
+        redundant.set(candidate.index, other.index);
+        break;
+      }
+
+      // Exact duplicate: flag only the later occurrence so exactly one
+      // of the pair is kept. (If `other` appears earlier, candidate is
+      // the later one and is flagged; if `other` appears later, this
+      // candidate is the keeper and the loop will flag `other` when
+      // it becomes the candidate — unless `other` is PK/unique, in
+      // which case candidate is flagged here because the keeper must
+      // be the integrity-enforcing index.)
+      if (sameColumns(candidate.columns, other.columns)) {
+        const candidatePos = indexes.indexOf(candidate);
+        const otherPos = indexes.indexOf(other);
+        if (otherPos < candidatePos || other.isPrimary || other.isUnique) {
+          redundant.set(candidate.index, other.index);
+          break;
+        }
+      }
+    }
+  }
+  return redundant;
+}
+
+export type IndexVerdict = "unused" | "redundant" | "ok";
+
+export interface IndexHealthEntry {
+  schema: string;
+  table: string;
+  index: string;
+  columns: string[];
+  sizeBytes: number;
+  idxScan: number;
+  isPrimary: boolean;
+  isUnique: boolean;
+  verdict: IndexVerdict;
+  /** For redundant indexes, the name of the index that covers this one. */
+  coveredBy?: string;
+  reason: string;
+  /** Suggestion text only — pg-lens never runs it. */
+  suggestion?: string;
+}
+
+export interface IndexHealthResult {
+  indexes: IndexHealthEntry[];
+  summary: {
+    totalIndexes: number;
+    unusedCount: number;
+    redundantCount: number;
+    okCount: number;
+    wastedBytes: number;
+  };
+  suggestions: string[];
+  note: string;
+}
+
+/**
+ * Report the health of every index in user schemas: indexes that are
+ * never scanned (and do not enforce integrity) and indexes made
+ * redundant by a wider composite index on the same table.
+ *
+ * Suggestions only — pg-lens never drops an index itself.
+ */
+export async function indexHealth(
+  db: Db,
+  schema?: string,
+): Promise<IndexHealthResult> {
+  if (schema !== undefined) assertIdentifier(schema, "schema");
+
+  const { rows } = await db.query<{
+    schemaname: string;
+    tablename: string;
+    indexname: string;
+    idx_scan: string | number | null;
+    is_primary: boolean;
+    is_unique: boolean;
+    size_bytes: string | number;
+    columns_csv: string | null;
+  }>(
+    `SELECT n.nspname AS schemaname,
+            t.relname AS tablename,
+            i.relname AS indexname,
+            s.idx_scan,
+            ix.indisprimary AS is_primary,
+            ix.indisunique AS is_unique,
+            pg_relation_size(i.oid) AS size_bytes,
+            -- string_agg, not ARRAY(...): the pg driver returns name[]
+            -- columns as a raw "{a,b}" string instead of a JS array.
+            (
+              SELECT string_agg(a.attname::text, ',' ORDER BY k.ord)
+                FROM unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord)
+                JOIN pg_attribute a
+                  ON a.attrelid = t.oid AND a.attnum = k.attnum
+            ) AS columns_csv
+       FROM pg_stat_user_indexes s
+       JOIN pg_class t ON t.oid = s.relid
+       JOIN pg_class i ON i.oid = s.indexrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       JOIN pg_index ix ON ix.indexrelid = i.oid
+      WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+        AND ($1::text IS NULL OR n.nspname = $1)
+      ORDER BY n.nspname, t.relname, i.relname`,
+    [schema ?? null],
+  );
+
+  const raw = rows.map((r) => ({
+    schema: r.schemaname,
+    table: r.tablename,
+    index: r.indexname,
+    columns: r.columns_csv ? r.columns_csv.split(",") : [],
+    sizeBytes: Number(r.size_bytes),
+    idxScan: Number(r.idx_scan ?? 0),
+    isPrimary: Boolean(r.is_primary),
+    isUnique: Boolean(r.is_unique),
+  }));
+
+  const redundant = findRedundantIndexes(raw);
+
+  const indexes: IndexHealthEntry[] = raw.map((r) => {
+    const coveredBy = redundant.get(r.index);
+    let verdict: IndexVerdict = "ok";
+    let reason = "Index is used and not covered by any wider index.";
+    if (r.isPrimary) {
+      reason = "Primary key index — enforces integrity, never flagged.";
+    } else if (r.isUnique) {
+      reason = "Unique index — enforces integrity, never flagged.";
+    } else if (coveredBy) {
+      verdict = "redundant";
+      reason =
+        `Columns (${r.columns.join(", ")}) are a left-prefix of index ${coveredBy} ` +
+        `on the same table, so this index adds write cost without adding lookup power.` +
+        (r.idxScan === 0 ? " It has also never been scanned." : "");
+    } else if (r.idxScan === 0) {
+      verdict = "unused";
+      reason =
+        "Never used for an index scan (idx_scan = 0) and does not enforce " +
+        "a primary-key or unique constraint, so it only taxes writes.";
+    }
+
+    const suggestion =
+      verdict === "ok"
+        ? undefined
+        : `DROP INDEX CONCURRENTLY ${r.schema}.${r.index}; -- review first: ` +
+          `check idx_scan over a representative period and confirm no constraint depends on it`;
+
+    return {
+      schema: r.schema,
+      table: r.table,
+      index: r.index,
+      columns: r.columns,
+      sizeBytes: r.sizeBytes,
+      idxScan: r.idxScan,
+      isPrimary: r.isPrimary,
+      isUnique: r.isUnique,
+      verdict,
+      ...(coveredBy ? { coveredBy } : {}),
+      reason,
+      ...(suggestion ? { suggestion } : {}),
+    };
+  });
+
+  const unusedCount = indexes.filter((i) => i.verdict === "unused").length;
+  const redundantCount = indexes.filter((i) => i.verdict === "redundant").length;
+  const okCount = indexes.filter((i) => i.verdict === "ok").length;
+  const wastedBytes = indexes
+    .filter((i) => i.verdict !== "ok")
+    .reduce((sum, i) => sum + i.sizeBytes, 0);
+
+  return {
+    indexes,
+    summary: {
+      totalIndexes: indexes.length,
+      unusedCount,
+      redundantCount,
+      okCount,
+      wastedBytes,
+    },
+    suggestions: indexes
+      .map((i) => i.suggestion)
+      .filter((s): s is string => s !== undefined),
+    note:
+      "Suggestions only — pg-lens never drops an index. idx_scan counts " +
+      "since the last stats reset, so review over a representative period " +
+      "before dropping anything.",
+  };
+}
+
 export interface TableStats {
   schema: string;
   table: string;

@@ -16,6 +16,7 @@ import { withReadOnly } from "../src/db.js";
 import {
   describeTable,
   explainQuery,
+  indexHealth,
   listTables,
   suggestIndexes,
   tableStats,
@@ -25,7 +26,7 @@ interface EvalCase {
   id: string;
   question: string;
   tool: string;
-  args?: { table?: string; sql?: string };
+  args?: { table?: string; sql?: string; schema?: string };
   expect: {
     tables?: string[];
     columnsInclude?: string[];
@@ -37,6 +38,9 @@ interface EvalCase {
     noSuggestions?: boolean;
     rejected?: boolean;
     minLiveRows?: number;
+    notFlagged?: string[];
+    minTotalIndexes?: number;
+    allSchema?: string;
   };
 }
 
@@ -84,6 +88,18 @@ async function runCase(c: EvalCase): Promise<string[]> {
           failures.push(`suggestions were [${r.suggestions.map((s) => s.createIndexSql).join("; ") || "none"}]`);
         if (e.noSuggestions && r.suggestions.length > 0)
           failures.push(`expected no suggestions, got ${r.suggestions.length}`);
+      } else if (c.tool === "index_health") {
+        const r = await indexHealth(db, c.args?.schema);
+        for (const name of e.notFlagged ?? []) {
+          const entry = r.indexes.find((i) => i.index === name);
+          if (!entry) failures.push(`index ${name} not reported`);
+          else if (entry.verdict !== "ok")
+            failures.push(`index ${name} flagged as ${entry.verdict} but must never be flagged`);
+        }
+        if (e.minTotalIndexes !== undefined && r.summary.totalIndexes < e.minTotalIndexes)
+          failures.push(`totalIndexes ${r.summary.totalIndexes} < ${e.minTotalIndexes}`);
+        if (e.allSchema && r.indexes.some((i) => i.schema !== e.allSchema))
+          failures.push(`an index outside schema ${e.allSchema} was reported`);
       } else if (c.tool === "table_stats") {
         const s = await tableStats(db, c.args!.table!);
         if (e.minLiveRows !== undefined && s.liveRows < e.minLiveRows)

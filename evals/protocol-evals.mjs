@@ -78,6 +78,19 @@ const cases = [
     const { isError } = await call('suggest_indexes', { query: 'UPDATE orders SET total = 0' });
     return isError;
   }],
+  ['index_health reports every index and never flags the orders PK', async () => {
+    const { json } = await call('index_health', {});
+    const pkey = json.indexes.find(i => i.index === 'orders_pkey');
+    const unique = json.indexes.find(i => i.index === 'customers_email_key');
+    return json.indexes.length >= 6 && pkey && pkey.verdict === 'ok'
+      && unique && unique.verdict === 'ok'
+      && json.summary.totalIndexes === json.indexes.length
+      && typeof json.summary.wastedBytes === 'number';
+  }],
+  ['index_health schema filter works', async () => {
+    const { json } = await call('index_health', { schema: 'public' });
+    return json.indexes.length >= 6 && json.indexes.every(i => i.schema === 'public');
+  }],
   ['describe_table on a missing table returns an error, not a crash', async () => {
     const { isError, text } = await call('describe_table', { table: 'no_such_table' });
     return isError && text.includes('not found');
