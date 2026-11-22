@@ -73,6 +73,22 @@ claude mcp add pg-lens --env DATABASE_URL=postgres://pglens:pglens@localhost:543
 (Or add the same command/env to your client's MCP config for Cursor /
 Claude Desktop.)
 
+## Evals
+
+`evals/cases.json` holds 11 fixed cases — a seeded schema, a question, the
+tool that should answer it, and the expected diagnosis (e.g. "orders by
+customer must seq-scan, and the suggestion must be exactly
+`CREATE INDEX idx_orders_customer_id …`"; "a DELETE must be rejected").
+Run them against the seeded database:
+
+```bash
+DATABASE_URL=postgres://pglens:pglens@localhost:5432/shop npm run evals
+# 11/11 eval cases passed
+```
+
+This is the eval-first check: the tools are scored on known questions
+instead of only looking right in a demo.
+
 ## Development
 
 ```bash
