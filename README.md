@@ -65,6 +65,36 @@ deliberately does not. Three layers enforce read-only access:
 
 ## Quick start
 
+### From npm (no clone needed)
+
+Point your MCP client at the published package and give it a
+`DATABASE_URL` for the Postgres database you want explained:
+
+```json
+{
+  "mcpServers": {
+    "pg-lens": {
+      "command": "npx",
+      "args": ["-y", "@sayhuan99/pg-lens-mcp"],
+      "env": {
+        "DATABASE_URL": "postgres://user:password@localhost:5432/yourdb"
+      }
+    }
+  }
+}
+```
+
+That config works in Claude Desktop and other MCP clients. From
+Claude Code:
+
+```bash
+claude mcp add pg-lens --env DATABASE_URL=postgres://user:password@localhost:5432/yourdb -- npx -y @sayhuan99/pg-lens-mcp
+```
+
+Use a read-only database user — pg-lens never needs write access.
+
+### From source (with the sample database)
+
 ```bash
 # 1. Start the sample database (a small "shop" schema, seeded)
 docker compose up -d
