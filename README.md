@@ -1,5 +1,7 @@
 # pg-lens-mcp
 
+[![TanSayHuan1999/pg-lens-mcp MCP server](https://glama.ai/mcp/servers/TanSayHuan1999/pg-lens-mcp/badges/score.svg)](https://glama.ai/mcp/servers/TanSayHuan1999/pg-lens-mcp)
+
 A **read-only PostgreSQL explainer** MCP server, written in TypeScript.
 
 Point an AI client (Claude Code, Cursor, Claude Desktop) at a Postgres
